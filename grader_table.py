@@ -1,11 +1,23 @@
 import tomlkit
 import os
 from tomlkit import document, table, comment, dumps
+from CanvasRequestLibrary.main import CanvasClient
 
 class Config:
     def __init__(self, canvas_token: str, course_id: int):
         self.canvas_token = canvas_token
         self.course_id = course_id
+class Group:
+    def __init__(self, name: str, id: int, members_count: int):
+        self.name = name
+        self.id = id
+        self.members_count = members_count
+    @staticmethod
+    def parse_groups_from_json(groups_json) -> []:
+        groups = []
+        for body in groups_json:
+            groups.append(Group(name=body['name'], id=body['id'], members_count=body['members_count']))
+        return groups
 
 
 def generate_grader_roster(context):
@@ -57,7 +69,12 @@ def generate_grader_roster(context):
             data.append(roster_dict)
         writer.writerows(data)
 
-def generate_all_rosters(course_id: int, canvas_token: str):
+def generate_all_rosters(course_id: int, canvas_token: str, path: str = None, url_base: str = "https://umsystem.instructure.com/api/v1/"):
+    client = CanvasClient(token=canvas_token, url_base=url_base)
+    groups = Group.parse_groups_from_json(client._groups.get_groups_from_course(course_id=course_id))
+    for group in groups:
+        print(group.name)
+    
     pass
 
 
@@ -81,12 +98,13 @@ def load_config() -> Config:
 
     # Extract values from the TOML document
     canvas = doc.get('canvas', {})
-    return Config(canvas_token==canvas.get("canvas_token"), course_id=canvas.get("canvas_course_id"))
+    return Config(canvas_token=canvas.get("canvas_token"), course_id=canvas.get("canvas_course_id"))
 def main():
     if not os.path.exists("config.toml"):
         prepare_toml()
         exit()
     config = load_config()
+    generate_all_rosters(course_id=config.course_id, canvas_token=config.canvas_token, path="")
 
 
 
