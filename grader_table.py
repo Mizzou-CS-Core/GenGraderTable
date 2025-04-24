@@ -20,39 +20,32 @@ class Group:
         return groups
 
 
-def generate_grader_roster(context):
-    config_obj = context.config_obj
-    command_args_obj = context.command_args_obj
-    csv_rosters_path = config_obj.hellbender_lab_dir + config_obj.class_code + "/csv_rosters"
+def generate_grader_roster(course_id: int, canvas_token: str, group: Group = None, grader_name: str = None, path: str = None, roster_invalidation_days: int = 14):
+    name = group.name if group is not None else grader_name
+    csv_rosters_path = f"{path or os.getcwd}/csv_rosters"
+    grader_csv = f"{name}.csv"
+    grader_csv_path = f"{csv_rosters_path}/{grader_csv}"
     fieldnames = ['pawprint', 'canvas_id', 'name', 'date']
     # first we'll check if the roster already exists.
-    if os.path.exists(csv_rosters_path + "/" + command_args_obj.grader_name + ".csv") and Path(
-            csv_rosters_path + "/" + command_args_obj.grader_name + ".csv").stat().st_size != 0 and config_obj.roster_invalidation_days > 0:
+    if os.path.exists(grader_csv_path) and Path(grader_csv_path).stat().st_size != 0 and roster_invalidation_days > 0:
         # if it does, let's see how old it is
         # every student has a date appended to it which should be the same so we'll just check the first one
-        with open(csv_rosters_path + "/" + command_args_obj.grader_name + ".csv", 'r', newline='') as csvfile:
+        with open(grader_csv_path, 'r', newline='') as csvfile:
             reader = DictReader(csvfile, fieldnames=fieldnames)
             next(reader)  # consume header
             sample_row = next(reader)
             stored_date_str = sample_row['date']
             stored_date_obj = datetime.datetime.strptime(stored_date_str, "%Y-%m-%d %H:%M:%S.%f")
-            invalidation_date = datetime.datetime.now() - datetime.timedelta(days=config_obj.roster_invalidation_days)
+            invalidation_date = datetime.datetime.now() - datetime.timedelta(days=roster_invalidation_days)
             if stored_date_obj > invalidation_date:
-                print(f"{Fore.BLUE}Roster data is recent enough to be used{Style.RESET_ALL}")
+                print(f"{Fore.BLUE}Roster data for {group.name} is recent enough to be used{Style.RESET_ALL}")
                 return
     print(f"{Fore.BLUE}Preparing roster data{Style.RESET_ALL}")
-    # firstly, get a list of groups
-    group_api = config_obj.api_prefix + "courses/" + str(config_obj.course_id) + "/groups"
-    groups = make_api_call(group_api, config_obj.api_token)
     # we need to find the group ID corresponding to the invoked grader
-    group_id = -1
-    for key in groups.json():
-        if key['name'] == command_args_obj.grader_name:
-            group_id = key['id']
-            # if it's still -1, we didn't find it. program will probably crash at some point but we're not going to exit because maybe a cached copy exists?
-    if group_id == -1:
-        print(
-            f"{Fore.RED}A group corresponding to {command_args_obj.grader_name} was not found in the Canvas course {str(config_obj.course_id)}{Style.RESET_ALL}")
+    if group is None:
+        group = find_grader_group(grader_name=name, course_id=course_id, canvas_token=canvas_token)
+    if group is None:
+        print(f"{Fore.RED}A group corresponding to {name} was not found in the Canvas course {str(course_id)}{Style.RESET_ALL}")
     # now we can retrieve a list of the users in the grader's group
     group_api = config_obj.api_prefix + "groups/" + str(group_id) + "/users?per_page=100"
     users_in_group = make_api_call(group_api, config_obj.api_token)
@@ -69,11 +62,18 @@ def generate_grader_roster(context):
             data.append(roster_dict)
         writer.writerows(data)
 
-def generate_all_rosters(course_id: int, canvas_token: str, path: str = None, url_base: str = "https://umsystem.instructure.com/api/v1/"):
+def find_grader_group(grader_name: str, canvas_token: str, course_id: int) -> Group:
     client = CanvasClient(token=canvas_token, url_base=url_base)
     groups = Group.parse_groups_from_json(client._groups.get_groups_from_course(course_id=course_id))
     for group in groups:
-        print(group.name)
+        if grader_name == group.name:
+            return group
+def get_group_members(group: Group, course_id: int, canvas_token: str):
+    pass
+
+def generate_all_rosters(course_id: int, canvas_token: str, path: str = None, url_base: str = "https://umsystem.instructure.com/api/v1/"):
+    client = CanvasClient(token=canvas_token, url_base=url_base)
+    groups = Group.parse_groups_from_json(client._groups.get_groups_from_course(course_id=course_id))
     
     pass
 
