@@ -1,23 +1,12 @@
 import tomlkit
 import os
 from tomlkit import document, table, comment, dumps
-from CanvasRequestLibrary.main import CanvasClient
+from CanvasRequestLibrary import CanvasClient, Group
 
 class Config:
     def __init__(self, canvas_token: str, course_id: int):
         self.canvas_token = canvas_token
         self.course_id = course_id
-class Group:
-    def __init__(self, name: str, id: int, members_count: int):
-        self.name = name
-        self.id = id
-        self.members_count = members_count
-    @staticmethod
-    def parse_groups_from_json(groups_json) -> []:
-        groups = []
-        for body in groups_json:
-            groups.append(Group(name=body['name'], id=body['id'], members_count=body['members_count']))
-        return groups
 
 
 def generate_grader_roster(course_id: int, canvas_token: str, group: Group = None, grader_name: str = None, path: str = None, roster_invalidation_days: int = 14):
@@ -68,12 +57,13 @@ def find_grader_group(grader_name: str, canvas_token: str, course_id: int) -> Gr
     for group in groups:
         if grader_name == group.name:
             return group
-def get_group_members(group: Group, course_id: int, canvas_token: str):
+def get_group_members(group: Group, canvas_token: str):
+
     pass
 
 def generate_all_rosters(course_id: int, canvas_token: str, path: str = None, url_base: str = "https://umsystem.instructure.com/api/v1/"):
     client = CanvasClient(token=canvas_token, url_base=url_base)
-    groups = Group.parse_groups_from_json(client._groups.get_groups_from_course(course_id=course_id))
+    groups = client._groups.get_groups_from_course(course_id=course_id)
     
     pass
 
