@@ -1,7 +1,14 @@
 import tomlkit
 import os
+import datetime
 from tomlkit import document, table, comment, dumps
-from CanvasRequestLibrary import CanvasClient, Group
+from CanvasRequestLibrary import CanvasClient, Group, Person
+
+from csv import DictReader, DictWriter
+from pathlib import Path
+
+from colorama import Fore
+from colorama import Style
 
 class Config:
     def __init__(self, canvas_token: str, course_id: int):
@@ -10,62 +17,56 @@ class Config:
 
 
 def generate_grader_roster(course_id: int, canvas_token: str, group: Group = None, grader_name: str = None, path: str = None, roster_invalidation_days: int = 14):
-    name = group.name if group is not None else grader_name
-    csv_rosters_path = f"{path or os.getcwd}/csv_rosters"
-    grader_csv = f"{name}.csv"
+    csv_rosters_path = f"{path if path is not None else os.getcwd()}/csv_rosters"
+    grader_csv = f"{group.name if group is not None else grader_name}.csv"
     grader_csv_path = f"{csv_rosters_path}/{grader_csv}"
-    fieldnames = ['pawprint', 'canvas_id', 'name', 'date']
+    fieldnames = ['pawprint', 'canvas_id', 'name']
     # first we'll check if the roster already exists.
     if os.path.exists(grader_csv_path) and Path(grader_csv_path).stat().st_size != 0 and roster_invalidation_days > 0:
         # if it does, let's see how old it is
-        # every student has a date appended to it which should be the same so we'll just check the first one
-        with open(grader_csv_path, 'r', newline='') as csvfile:
-            reader = DictReader(csvfile, fieldnames=fieldnames)
-            next(reader)  # consume header
-            sample_row = next(reader)
-            stored_date_str = sample_row['date']
-            stored_date_obj = datetime.datetime.strptime(stored_date_str, "%Y-%m-%d %H:%M:%S.%f")
-            invalidation_date = datetime.datetime.now() - datetime.timedelta(days=roster_invalidation_days)
-            if stored_date_obj > invalidation_date:
-                print(f"{Fore.BLUE}Roster data for {group.name} is recent enough to be used{Style.RESET_ALL}")
+        file_mod_time = datetime.datetime.fromtimestamp(os.path.getmtime(grader_csv_path))
+        invalidation_date = datetime.datetime.now() - datetime.timedelta(days=roster_invalidation_days)
+        if file_mod_time > invalidation_date:
+                print(f"{Fore.BLUE}Roster data for {group.name if group is not None else grader_name} is recent enough to be used{Style.RESET_ALL}")
                 return
-    print(f"{Fore.BLUE}Preparing roster data{Style.RESET_ALL}")
+
+    print(f"{Fore.BLUE}Preparing roster data for {group.name if group is not None else grader_name}{Style.RESET_ALL}")
     # we need to find the group ID corresponding to the invoked grader
     if group is None:
-        group = find_grader_group(grader_name=name, course_id=course_id, canvas_token=canvas_token)
+        group = find_grader_group(grader_name=grader_name, course_id=course_id, canvas_token=canvas_token)
     if group is None:
-        print(f"{Fore.RED}A group corresponding to {name} was not found in the Canvas course {str(course_id)}{Style.RESET_ALL}")
+        print(f"{Fore.RED}A group corresponding to {group.name if group is not None else grader_name} was not found in the Canvas course {str(course_id)}{Style.RESET_ALL}")
     # now we can retrieve a list of the users in the grader's group
-    group_api = config_obj.api_prefix + "groups/" + str(group_id) + "/users?per_page=100"
-    users_in_group = make_api_call(group_api, config_obj.api_token)
+    
+    users = get_group_members(group=group, canvas_token=canvas_token)
 
     if not os.path.exists(csv_rosters_path):
         os.makedirs(csv_rosters_path)
-    with open(csv_rosters_path + "/" + command_args_obj.grader_name + ".csv", 'w', newline='') as csvfile:
+    with open(grader_csv_path, 'w', newline='') as csvfile:
         writer = DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         data = []
-        for key in users_in_group.json():
-            roster_dict = {'pawprint': key['login_id'], 'canvas_id': key['id'], 'name': key['sortable_name'],
-                    'date': datetime.datetime.now()}
+        for user in users:
+            roster_dict = {'pawprint': user.login_id, 'canvas_id': user.canvas_id, 'name': user.sortable_name}
             data.append(roster_dict)
         writer.writerows(data)
 
-def find_grader_group(grader_name: str, canvas_token: str, course_id: int) -> Group:
+def find_grader_group(grader_name: str, canvas_token: str, course_id: int, url_base: str = "https://umsystem.instructure.com/api/v1/") -> Group:
     client = CanvasClient(token=canvas_token, url_base=url_base)
-    groups = Group.parse_groups_from_json(client._groups.get_groups_from_course(course_id=course_id))
+    groups = client._groups.get_groups_from_course(course_id=course_id)
     for group in groups:
         if grader_name == group.name:
             return group
-def get_group_members(group: Group, canvas_token: str):
 
-    pass
+def get_group_members(group: Group, canvas_token: str, url_base: str = "https://umsystem.instructure.com/api/v1/"):
+    client = CanvasClient(token=canvas_token, url_base=url_base)
+    return client._groups.get_people_from_group(group_id=group.id, per_page=50)
 
 def generate_all_rosters(course_id: int, canvas_token: str, path: str = None, url_base: str = "https://umsystem.instructure.com/api/v1/"):
     client = CanvasClient(token=canvas_token, url_base=url_base)
     groups = client._groups.get_groups_from_course(course_id=course_id)
-    
-    pass
+    for group in groups:
+        generate_grader_roster(group=group, course_id=group.id, canvas_token=canvas_token, grader_name=group.name)
 
 
 def prepare_toml() -> None:
@@ -95,6 +96,7 @@ def main():
         exit()
     config = load_config()
     generate_all_rosters(course_id=config.course_id, canvas_token=config.canvas_token, path="")
+    #generate_grader_roster(course_id=config.course_id, canvas_token=config.canvas_token,grader_name="Matthew")
 
 
 
