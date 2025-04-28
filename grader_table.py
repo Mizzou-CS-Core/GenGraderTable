@@ -2,7 +2,7 @@ import tomlkit
 import os
 import datetime
 from tomlkit import document, table, comment, dumps
-from CanvasRequestLibrary import CanvasClient, Group, Person
+from canvas_lms_api import CanvasClient, Group, Person
 
 from csv import DictReader, DictWriter
 from pathlib import Path

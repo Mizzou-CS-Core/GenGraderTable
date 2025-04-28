@@ -1,0 +1,8 @@
+-e git+https://github.com/Mizzou-CS-Core/CanvasRequestLibrary.git@78653d6d068692392c8fd283846eb75e4e024fd5#egg=canvas_lms_api
+certifi==2025.1.31
+charset-normalizer==3.4.1
+colorama==0.4.6
+idna==3.10
+requests==2.32.3
+tomlkit==0.13.2
+urllib3==2.4.0
