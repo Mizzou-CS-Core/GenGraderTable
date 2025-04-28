@@ -1,8 +1,10 @@
 from setuptools import setup, find_packages
 
 setup(
-  name="GenGraderTable",
-  version="0.1",
-  packages=find_packages(),
-  install_requires=["CanvasRequestLibrary"],
+  name="gen_grader_table",
+  version="0.2",
+  packages=find_packages(include=["gen_grader_table", "gen_grader_table.*"]),
+    install_requires=[
+        "canvas_lms_api",
+    ],
 )
