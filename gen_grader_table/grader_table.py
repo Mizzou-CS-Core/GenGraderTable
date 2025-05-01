@@ -1,14 +1,15 @@
 import tomlkit
 import os
 import datetime
-from tomlkit import document, table, comment, dumps
-from canvas_lms_api import CanvasClient, Group, Person
+import logging
 
-from csv import DictReader, DictWriter
+from tomlkit import document, table, comment, dumps
+from canvas_lms_api import get_client, Group, Person
+
 from pathlib import Path
 
-from colorama import Fore
-from colorama import Style
+import mucs_database.store_objects as dao
+logger = logging.getLogger(__name__)
 
 class Config:
     def __init__(self, canvas_token: str, course_id: int):
@@ -16,57 +17,60 @@ class Config:
         self.course_id = course_id
 
 
-def generate_grader_roster(course_id: int, canvas_token: str, group: Group = None, grader_name: str = None, path: str = None, roster_invalidation_days: int = 14):
-    csv_rosters_path = f"{path if path is not None else os.getcwd()}/csv_rosters"
-    grader_csv = f"{group.name if group is not None else grader_name}.csv"
-    grader_csv_path = f"{csv_rosters_path}/{grader_csv}"
-    fieldnames = ['pawprint', 'canvas_id', 'name']
-    # first we'll check if the roster already exists.
-    if os.path.exists(grader_csv_path) and Path(grader_csv_path).stat().st_size != 0 and roster_invalidation_days > 0:
-        # if it does, let's see how old it is
-        file_mod_time = datetime.datetime.fromtimestamp(os.path.getmtime(grader_csv_path))
-        invalidation_date = datetime.datetime.now() - datetime.timedelta(days=roster_invalidation_days)
-        if file_mod_time > invalidation_date:
-                print(f"{Fore.BLUE}Roster data for {group.name if group is not None else grader_name} is recent enough to be used{Style.RESET_ALL}")
-                return
 
-    print(f"{Fore.BLUE}Preparing roster data for {group.name if group is not None else grader_name}{Style.RESET_ALL}")
+def validate_cache(grader_name: str, roster_invalidation_days: int = 14,) -> bool:
+    """
+    Checks if the last time the database was updated with roster data is within an acceptable range.
+    Returns false if the cache is invalid. 
+    :param grader_name: The name of the grader
+    :param roster_invalidation_days: How many days can pass before a new update is needed
+    """
+    invalidation_date = datetime.datetime.now() - datetime.timedelta(days=roster_invalidation_days)
+    logger.debug(f"Checking last write. Invalidation date: {invalidation_date}")
+    logger.debug(f"Invalidation days: {roster_invalidation_days}")
+    # First, we can determine the last time all grading groups were updated.
+    last_write_date = dao.get_cache_date_from_mucs_course("last_grader_pull")
+    if last_write_date is None:
+        logger.info("Refreshing grading group data")
+        return False
+    
+    # Let's check the last time the grader was updated.
+    grader_dict = dao.get_grader_by_name(grader_name)
+    if grader_dict is None:
+        logger.info(f"Refreshing {grader_name}'s grading group")
+    last_write_date = datetime.datetime.fromtimestamp(grader_dict["last_updated"])
+    if last_write_date > invalidation_date:
+        logger.info(f"Grading group data for {grader_name} is recent enough to be reliably used.")
+        return True
+    return False
+def generate_grader_roster(course_id: int, group: Group = None, grader_name: str = None, roster_invalidation_days: int = 14):
+    if validate_cache(roster_invalidation_days=roster_invalidation_days, grader_name=grader_name):
+        logger.info(f"There is no need to regenerate the grader roster based on roster invalidation days = {roster_invalidation_days}")
+        return 
+    logger.info(f"Preparing roster data for {group.name if group is not None else grader_name}")
     # we need to find the group ID corresponding to the invoked grader
     if group is None:
-        group = find_grader_group(grader_name=grader_name, course_id=course_id, canvas_token=canvas_token)
+        group = find_grader_group(grader_name=grader_name, course_id=course_id)
     if group is None:
-        print(f"{Fore.RED}A group corresponding to {group.name if group is not None else grader_name} was not found in the Canvas course {str(course_id)}{Style.RESET_ALL}")
+        logger.warning(f"A group corresponding to {group.name if group is not None else grader_name} was not found in the Canvas course {str(course_id)}")
+    # place it in DB
+    grading_group_id = dao.store_grading_group(id=group.id, name=group.name, course_id=course_id, replace=True)
     # now we can retrieve a list of the users in the grader's group
-    
-    users = get_group_members(group=group, canvas_token=canvas_token)
+    users = get_client._groups.get_people_from_group(group_id=group.id, per_page=50)
 
-    if not os.path.exists(csv_rosters_path):
-        os.makedirs(csv_rosters_path)
-    with open(grader_csv_path, 'w', newline='') as csvfile:
-        writer = DictWriter(csvfile, fieldnames=fieldnames)
-        writer.writeheader()
-        data = []
-        for user in users:
-            roster_dict = {'pawprint': user.login_id, 'canvas_id': user.canvas_id, 'name': user.sortable_name}
-            data.append(roster_dict)
-        writer.writerows(data)
+    for user in users:
+        dao.store_student(pawprint=user.login_id, name=user.name, sortable_name=user.sortable_name, canvas_id=user.id, grader_id=grading_group_id, replace=True)
 
-def find_grader_group(grader_name: str, canvas_token: str, course_id: int, url_base: str = "https://umsystem.instructure.com/api/v1/") -> Group:
-    client = CanvasClient(token=canvas_token, url_base=url_base)
-    groups = client._groups.get_groups_from_course(course_id=course_id)
+def find_grader_group(grader_name: str, course_id: int,) -> Group:
+    groups = get_client._groups.get_groups_from_course(course_id=course_id)
     for group in groups:
         if grader_name == group.name:
             return group
 
-def get_group_members(group: Group, canvas_token: str, url_base: str = "https://umsystem.instructure.com/api/v1/"):
-    client = CanvasClient(token=canvas_token, url_base=url_base)
-    return client._groups.get_people_from_group(group_id=group.id, per_page=50)
-
-def generate_all_rosters(course_id: int, canvas_token: str, path: str = None, url_base: str = "https://umsystem.instructure.com/api/v1/"):
-    client = CanvasClient(token=canvas_token, url_base=url_base)
-    groups = client._groups.get_groups_from_course(course_id=course_id)
+def generate_all_rosters(course_id: int):
+    groups = get_client._groups.get_groups_from_course(course_id=course_id)
     for group in groups:
-        generate_grader_roster(group=group, course_id=group.id, canvas_token=canvas_token, grader_name=group.name)
+        generate_grader_roster(group=group, course_id=group.id, grader_name=group.name)
 
 
 def prepare_toml() -> None:
@@ -95,6 +99,9 @@ def main():
         prepare_toml()
         exit()
     config = load_config()
+
+
+    
     generate_all_rosters(course_id=config.course_id, canvas_token=config.canvas_token, path="")
     #generate_grader_roster(course_id=config.course_id, canvas_token=config.canvas_token,grader_name="Matthew")
 

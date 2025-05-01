@@ -1,0 +1,6 @@
+tomlkit
+gitpython
+git+https://github.com/Mizzou-CS-Core/CanvasRequestLibrary.git#egg=canvas_lms_api
+colorama
+colorlog
+git+https://github.com/Mizzou-CS-Core/MUCSDao#egg=mucs_database
