@@ -83,7 +83,9 @@ def generate_all_rosters(course_id: int):
         generate_grader_roster(group=group, course_id=course_id, grader_name=group.name)
 
 
-def prepare_toml(mucsv2_instance_code: str = "", db_path: str = "", canvas_token: str = "", canvas_course_id: int = -1, canvas_url_base: str = "https://umsystem.instructure.com/api/v1/", roster_invalidation_days: int = 0) -> None:
+def prepare_toml(mucsv2_instance_code: str = "", db_path: str = "", canvas_token: str = "", canvas_course_id: int = -1,
+                 canvas_url_base: str = "https://umsystem.instructure.com/api/v1/", roster_invalidation_days: int = 0,
+                 config_base=Path("")) -> None:
     doc = document()
     general = table()
     general.add(comment("The mucsv2 instance code of your course."))
