@@ -174,3 +174,4 @@ cython_debug/
 .pypirc
 setup.py
 gen_grader_table/config.toml
+gen_grader_table.toml

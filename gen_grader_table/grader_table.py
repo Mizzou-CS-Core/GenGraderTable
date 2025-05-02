@@ -12,13 +12,17 @@ import mucs_database.store_objects as dao
 logger = logging.getLogger(__name__)
 
 class Config:
-    def __init__(self, canvas_token: str, course_id: int):
+    def __init__(self, canvas_token: str, course_id: int, mucsv2_instance_code: str, db_path: str, canvas_url_base: str, roster_invalidation_days: int,):
+        self.mucsv2_instance_code = mucsv2_instance_code
         self.canvas_token = canvas_token
         self.course_id = course_id
+        self.db_path = db_path
+        self.canvas_url_base = canvas_url_base
+        self.roster_invalidation_days = roster_invalidation_days
 
 
 
-def validate_cache(grader_name: str, roster_invalidation_days: int = 14,) -> bool:
+def is_cache_valid(grader_name: str, roster_invalidation_days: int = 14,) -> bool:
     """
     Checks if the last time the database was updated with roster data is within an acceptable range.
     Returns false if the cache is invalid. 
@@ -38,13 +42,14 @@ def validate_cache(grader_name: str, roster_invalidation_days: int = 14,) -> boo
     grader_dict = dao.get_grader_by_name(grader_name)
     if grader_dict is None:
         logger.info(f"Refreshing {grader_name}'s grading group")
-    last_write_date = datetime.datetime.fromtimestamp(grader_dict["last_updated"])
+        return False
+    last_write_date = grader_dict["last_updated"]
     if last_write_date > invalidation_date:
         logger.info(f"Grading group data for {grader_name} is recent enough to be reliably used.")
         return True
     return False
 def generate_grader_roster(course_id: int, group: Group = None, grader_name: str = None, roster_invalidation_days: int = 14):
-    if validate_cache(roster_invalidation_days=roster_invalidation_days, grader_name=grader_name):
+    if is_cache_valid(roster_invalidation_days=roster_invalidation_days, grader_name=grader_name):
         logger.info(f"There is no need to regenerate the grader roster based on roster invalidation days = {roster_invalidation_days}")
         return 
     logger.info(f"Preparing roster data for {group.name if group is not None else grader_name}")
@@ -56,56 +61,45 @@ def generate_grader_roster(course_id: int, group: Group = None, grader_name: str
     # place it in DB
     grading_group_id = dao.store_grading_group(id=group.id, name=group.name, course_id=course_id, replace=True)
     # now we can retrieve a list of the users in the grader's group
-    users = get_client._groups.get_people_from_group(group_id=group.id, per_page=50)
+    users = get_client()._groups.get_people_from_group(group_id=group.id, per_page=50)
 
     for user in users:
-        dao.store_student(pawprint=user.login_id, name=user.name, sortable_name=user.sortable_name, canvas_id=user.id, grader_id=grading_group_id, replace=True)
+        dao.store_student(pawprint=user.login_id, name=user.name, sortable_name=user.sortable_name, canvas_id=user.canvas_id, grader_id=grading_group_id, replace=True)
 
 def find_grader_group(grader_name: str, course_id: int,) -> Group:
-    groups = get_client._groups.get_groups_from_course(course_id=course_id)
+    groups = get_client()._groups.get_groups_from_course(course_id=course_id)
     for group in groups:
         if grader_name == group.name:
             return group
 
 def generate_all_rosters(course_id: int):
-    groups = get_client._groups.get_groups_from_course(course_id=course_id)
+    groups = get_client()._groups.get_groups_from_course(course_id=course_id)
     for group in groups:
-        generate_grader_roster(group=group, course_id=group.id, grader_name=group.name)
+        generate_grader_roster(group=group, course_id=course_id, grader_name=group.name)
 
 
-def prepare_toml() -> None:
+def prepare_toml(mucsv2_instance_code: str = "", db_path: str = "", canvas_token: str = "", canvas_course_id: int = -1, canvas_url_base: str = "https://umsystem.instructure.com/api/v1/", roster_invalidation_days: int = 0) -> None:
     doc = document()
+    general = table()
+    general.add(comment("The mucsv2 instance code of your course."))
+    general.add("mucsv2_instance_code", mucsv2_instance_code)
+    general.add(comment("How many days can pass before we need to explicitly regenerate roster data"))
+    general.add("roster_invalidation_days", roster_invalidation_days)
+    doc['general'] = general
+    paths = table()
+    paths.add(comment("Path to MUCSv2 Database"))
+    paths.add("db_path", db_path)
+    doc['paths'] = paths
 
     canvas = table()
+    canvas.add(comment("The Canvas LMS instance to use."))
+    canvas.add("canvas_url_base", canvas_url_base)
     canvas.add(comment("The Canvas LMS Token identifying your user session."))
-    canvas.add("canvas_token", "")
+    canvas.add("canvas_token", canvas_token)
     canvas.add(comment("The Canvas LMS course ID identifying your course."))
-    canvas.add("canvas_course_id", 0)
+    canvas.add("canvas_course_id", canvas_course_id)
     doc['canvas'] = canvas
 
-    with open("config.toml", 'w') as f:
+    with open("gen_grader_table.toml", 'w') as f:
         f.write(dumps(doc))
-    print("Created default toml config")
-def load_config() -> Config:
-    with open("config.toml", 'r') as f:
-        content = f.read()
-    doc = tomlkit.parse(content)
-
-    # Extract values from the TOML document
-    canvas = doc.get('canvas', {})
-    return Config(canvas_token=canvas.get("canvas_token"), course_id=canvas.get("canvas_course_id"))
-def main():
-    if not os.path.exists("config.toml"):
-        prepare_toml()
-        exit()
-    config = load_config()
-
-
-    
-    generate_all_rosters(course_id=config.course_id, canvas_token=config.canvas_token, path="")
-    #generate_grader_roster(course_id=config.course_id, canvas_token=config.canvas_token,grader_name="Matthew")
-
-
-
-if __name__ == "__main__":
-    main()
+    logger.info("Created default toml config")
