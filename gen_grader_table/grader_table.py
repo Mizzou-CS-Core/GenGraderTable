@@ -63,7 +63,7 @@ def generate_grader_roster(course_id: int, group: Group = None, grader_name: str
     # place it in DB
     grading_group_id = dao.store_grading_group(id=group.id, name=group.name, course_id=course_id, replace=True)
     # now we can retrieve a list of the users in the grader's group
-    users = get_client()._groups.get_people_from_group(group_id=group.id, per_page=50)
+    users = get_client().groups.get_people_from_group(group_id=group.id, per_page=50)
 
     for user in users:
         dao.store_student(pawprint=user.login_id, name=user.name, sortable_name=user.sortable_name,
@@ -71,14 +71,14 @@ def generate_grader_roster(course_id: int, group: Group = None, grader_name: str
 
 
 def find_grader_group(grader_name: str, course_id: int, ) -> Group:
-    groups = get_client()._groups.get_groups_from_course(course_id=course_id)
+    groups = get_client().groups.get_groups_from_course(course_id=course_id)
     for group in groups:
         if grader_name == group.name:
             return group
 
 
 def generate_all_rosters(course_id: int):
-    groups = get_client()._groups.get_groups_from_course(course_id=course_id)
+    groups = get_client().groups.get_groups_from_course(course_id=course_id)
     for group in groups:
         generate_grader_roster(group=group, course_id=course_id, grader_name=group.name)
 
