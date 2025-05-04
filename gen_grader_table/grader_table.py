@@ -2,7 +2,9 @@ import datetime
 import logging
 from pathlib import Path
 
-import mucs_database.store_objects as dao
+import mucs_database.mucsv2_course.accessors as dao_mucsv2_course
+import mucs_database.grading_group.accessors as dao_grading_group
+import mucs_database.person.accessors as dao_person
 from canvas_lms_api import get_client, Group
 from tomlkit import document, table, comment, dumps
 
@@ -31,13 +33,13 @@ def is_cache_valid(grader_name: str, roster_invalidation_days: int = 14, ) -> bo
     logger.debug(f"Checking last write. Invalidation date: {invalidation_date}")
     logger.debug(f"Invalidation days: {roster_invalidation_days}")
     # First, we can determine the last time all grading groups were updated.
-    last_write_date = dao.get_cache_date_from_mucs_course("last_grader_pull")
+    last_write_date = dao_mucsv2_course.get_cache_date_from_mucs_course("last_grader_pull")
     if last_write_date is None:
         logger.info("Refreshing grading group data")
         return False
 
     # Let's check the last time the grader was updated.
-    grader_dict = dao.get_grader_by_name(grader_name)
+    grader_dict = dao_grading_group.get_grading_group_by_name(grading_group_name=grader_name)
     if grader_dict is None:
         logger.info(f"Refreshing {grader_name}'s grading group")
         return False
@@ -61,13 +63,14 @@ def generate_grader_roster(course_id: int, group: Group = None, grader_name: str
             f"A group corresponding to {group.name if group is not None else grader_name} was not found in the Canvas "
             f"course {str(course_id)}")
     # place it in DB
-    grading_group_id = dao.store_grading_group(id=group.id, name=group.name, course_id=course_id, replace=True)
+    grading_group_id = dao_grading_group.store_grading_group(canvas_id=group.id, name=group.name,
+                                                             course_id=course_id, replace=True)
     # now we can retrieve a list of the users in the grader's group
     users = get_client().groups.get_people_from_group(group_id=group.id, per_page=50)
 
     for user in users:
-        dao.store_student(pawprint=user.login_id, name=user.name, sortable_name=user.sortable_name,
-                          canvas_id=user.canvas_id, grader_id=grading_group_id, replace=True)
+        dao_person.store_person(pawprint=user.login_id, name=user.name, sortable_name=user.sortable_name,
+                                canvas_id=user.canvas_id, grading_group_id=grading_group_id, replace=True)
 
 
 def find_grader_group(grader_name: str, course_id: int, ) -> Group:
