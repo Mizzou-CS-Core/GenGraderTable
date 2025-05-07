@@ -18,7 +18,7 @@ Other projects in the MUCSv2 family of applications use this library, including 
 *Many of these set up steps are performed automatically if you have initialized your MUCSv2 course instance correctly using https://github.com/Mizzou-CS-Core/MUCS_Startup*. 
 
 A Python 3.7+ interpreter is required. It is recommended that you create a Python virtual environment for using this application.
-There are some required modules in MUCSMake. You can install them with `pip install -r requirements.txt`. 
+There are some required modules in `gen_grader_table`. You can install them with `pip install -r requirements.txt`. 
 
 To configure runtime properties, first run the program at least once. This will create an editable `config.toml` document that you can edit with your specifications. You will need to specify a database file path and the MUCSv2 instance code associated with your MUCSv2 instance. You will also need to provide your Canvas information, including a `canvas_token`, `canvas_url_base`, and the `canvas_course_id` you want to search from. 
 
